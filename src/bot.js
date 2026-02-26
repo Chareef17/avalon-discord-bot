@@ -11,10 +11,9 @@ import { createAvalonCommands } from './commands/avalonCommands.js';
 import { AvalonGameManager } from './game/AvalonGameManager.js';
 
 const token = process.env.DISCORD_TOKEN;
-const clientId = process.env.CLIENT_ID;
 
-if (!token || !clientId) {
-  console.error('DISCORD_TOKEN หรือ CLIENT_ID ยังไม่ถูกตั้งค่าในไฟล์ .env');
+if (!token) {
+  console.error('DISCORD_TOKEN ยังไม่ถูกตั้งค่าในไฟล์ .env');
   process.exit(1);
 }
 
@@ -31,13 +30,13 @@ const client = new Client({
 client.commands = new Collection();
 const avalonGameManager = new AvalonGameManager();
 
-async function registerCommands() {
+async function registerCommands(appId) {
   const commands = createAvalonCommands();
   const rest = new REST({ version: '10' }).setToken(token);
 
   try {
     console.log('กำลังลงทะเบียน Slash Commands (/avalon ...)');
-    await rest.put(Routes.applicationCommands(clientId), {
+    await rest.put(Routes.applicationCommands(appId), {
       body: commands.map((c) => c.data.toJSON()),
     });
     console.log('ลงทะเบียน Slash Commands สำเร็จ');
@@ -50,8 +49,11 @@ async function registerCommands() {
   }
 }
 
-client.once('ready', () => {
+client.once('ready', async () => {
   console.log(`ล็อกอินเป็น ${client.user.tag} แล้ว พร้อมใช้งาน!`);
+
+  const appId = client.application?.id || client.user.id;
+  await registerCommands(appId);
 });
 
 client.on('interactionCreate', async (interaction) => {
@@ -78,7 +80,5 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
-registerCommands().then(() => {
-  client.login(token);
-});
+client.login(token);
 

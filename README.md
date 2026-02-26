@@ -20,7 +20,6 @@ npm install
 
 ```bash
 DISCORD_TOKEN=ใส่โทเคนของบอทที่นี่
-CLIENT_ID=ใส่ Client ID ของแอปที่นี่
 ```
 
 ## การรันบอท
