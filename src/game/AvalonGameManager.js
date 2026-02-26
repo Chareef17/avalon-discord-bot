@@ -1,21 +1,38 @@
-import { assignRolesAndGetInfos } from './roles.js';
+const { assignRolesAndGetInfos } = require('./roles');
 
-export class AvalonGame {
+function createQuestSetupForPlayerCount(count) {
+  const configByCount = {
+    5: { teamSizes: [2, 3, 2, 3, 3], failsRequired: [1, 1, 1, 1, 1] },
+    6: { teamSizes: [2, 3, 4, 3, 4], failsRequired: [1, 1, 1, 1, 1] },
+    7: { teamSizes: [2, 3, 3, 4, 4], failsRequired: [1, 1, 1, 2, 1] },
+    8: { teamSizes: [3, 4, 4, 5, 5], failsRequired: [1, 1, 1, 2, 1] },
+    9: { teamSizes: [3, 4, 4, 5, 5], failsRequired: [1, 1, 1, 2, 1] },
+    10: { teamSizes: [3, 4, 4, 5, 5], failsRequired: [1, 1, 1, 2, 1] },
+  };
+  const base = configByCount[count] || configByCount[10];
+  return base.teamSizes.map((size, index) => ({
+    index,
+    teamSize: size,
+    failsRequired: base.failsRequired[index],
+    result: null,
+  }));
+}
+
+class AvalonGame {
   constructor(channelId, hostId) {
     this.channelId = channelId;
     this.hostId = hostId;
     this.players = [];
     this.started = false;
-
-    this.phase = 'lobby'; // lobby | team_proposal | team_vote | mission | assassin_guess | ended
+    this.phase = 'lobby';
     this.leaderIndex = 0;
     this.currentQuestIndex = 0;
-    this.quests = []; // [{ index, teamSize, failsRequired, result: 'success' | 'fail' | null }]
-    this.selectedTeam = []; // array of playerIds
-    this.teamVotes = new Map(); // playerId -> true(approve) | false(reject)
-    this.missionVotes = new Map(); // playerId -> 'success' | 'fail'
+    this.quests = [];
+    this.selectedTeam = [];
+    this.teamVotes = new Map();
+    this.missionVotes = new Map();
     this.consecutiveRejectedTeams = 0;
-    this.winner = null; // 'good' | 'evil' | null
+    this.winner = null;
   }
 
   addPlayer(id, name) {
@@ -48,12 +65,8 @@ export class AvalonGame {
   }
 
   canStart() {
-    if (this.started) {
-      return { ok: false, reason: 'เกมนี้เริ่มไปแล้ว' };
-    }
-    if (this.players.length < 5) {
-      return { ok: false, reason: 'ต้องมีผู้เล่นอย่างน้อย 5 คนขึ้นไป' };
-    }
+    if (this.started) return { ok: false, reason: 'เกมนี้เริ่มไปแล้ว' };
+    if (this.players.length < 5) return { ok: false, reason: 'ต้องมีผู้เล่นอย่างน้อย 5 คนขึ้นไป' };
     return { ok: true };
   }
 
@@ -78,7 +91,7 @@ export class AvalonGame {
   }
 
   getCurrentQuest() {
-    return this.quests[this.currentQuestIndex] ?? null;
+    return this.quests[this.currentQuestIndex] != null ? this.quests[this.currentQuestIndex] : null;
   }
 
   proposeTeam(leaderId, memberIds) {
@@ -128,9 +141,7 @@ export class AvalonGame {
   }
 
   voteTeam(playerId, approve) {
-    if (!this.started) {
-      return { ok: false, message: 'เกมยังไม่เริ่ม' };
-    }
+    if (!this.started) return { ok: false, message: 'เกมยังไม่เริ่ม' };
     if (this.phase !== 'team_vote') {
       return { ok: false, message: 'ตอนนี้ยังไม่ใช่ช่วงโหวตทีม' };
     }
@@ -152,7 +163,7 @@ export class AvalonGame {
 
       const questNo = this.currentQuestIndex + 1;
       const teamList = this.selectedTeam.map((id) => `<@${id}>`).join(', ');
-      const approved = approveCount > rejectCount; // เสียงข้างมากเท่านั้นที่ผ่าน
+      const approved = approveCount > rejectCount;
 
       if (approved) {
         this.phase = 'mission';
@@ -199,23 +210,17 @@ export class AvalonGame {
   }
 
   voteMission(playerId, choice) {
-    if (!this.started) {
-      return { ok: false, message: 'เกมยังไม่เริ่ม' };
-    }
+    if (!this.started) return { ok: false, message: 'เกมยังไม่เริ่ม' };
     if (this.phase !== 'mission') {
       return { ok: false, message: 'ตอนนี้ยังไม่ใช่ช่วงโหวตผลภารกิจ' };
     }
     const quest = this.getCurrentQuest();
-    if (!quest) {
-      return { ok: false, message: 'ไม่พบข้อมูลภารกิจ (เกมอาจจบแล้ว)' };
-    }
+    if (!quest) return { ok: false, message: 'ไม่พบข้อมูลภารกิจ (เกมอาจจบแล้ว)' };
     if (!this.selectedTeam.includes(playerId)) {
       return { ok: false, message: 'มีเพียงสมาชิกทีมภารกิจเท่านั้นที่สามารถโหวตได้', ephemeral: true };
     }
     const player = this.players.find((p) => p.id === playerId);
-    if (!player) {
-      return { ok: false, message: 'ไม่พบข้อมูลผู้เล่น', ephemeral: true };
-    }
+    if (!player) return { ok: false, message: 'ไม่พบข้อมูลผู้เล่น', ephemeral: true };
     if (this.missionVotes.has(playerId)) {
       return { ok: false, message: 'คุณได้โหวตไปแล้ว', ephemeral: true };
     }
@@ -260,7 +265,7 @@ export class AvalonGame {
           this.winner = 'good';
           broadcast =
             `**ผลภารกิจที่ ${questNo}**: ${success ? 'สำเร็จ' : 'ล้มเหลว'}\n` +
-            `มีการ์ดล้มเหลว ${failCount} ใบ (ต้องมีอย่างน้อย ${quest.failsRequired} ใบจึงจะล้มเหลว)\n\n` +
+            `มีการ์ดล้มเหลว ${failCount} ใบ\n\n` +
             'ฝ่ายดีชนะภารกิจครบ 3 ครั้ง และไม่มี Assassin เกมจบ ฝ่ายดีชนะ!';
         }
       } else if (failCountTotal >= 3) {
@@ -268,18 +273,16 @@ export class AvalonGame {
         this.winner = 'evil';
         broadcast =
           `**ผลภารกิจที่ ${questNo}**: ${success ? 'สำเร็จ' : 'ล้มเหลว'}\n` +
-          `มีการ์ดล้มเหลว ${failCount} ใบ (ต้องมีอย่างน้อย ${quest.failsRequired} ใบจึงจะล้มเหลว)\n\n` +
+          `มีการ์ดล้มเหลว ${failCount} ใบ\n\n` +
           'ฝ่ายร้ายทำให้ภารกิจล้มเหลวครบ 3 ครั้ง เกมจบ ฝ่ายร้ายชนะ!';
       } else {
-        // ดำเนินเกมต่อไปยังภารกิจถัดไป
         this.phase = 'team_proposal';
         this.currentQuestIndex += 1;
         this.leaderIndex = (this.leaderIndex + 1) % this.players.length;
         const newLeader = this.getLeader();
-
         broadcast =
           `**ผลภารกิจที่ ${questNo}**: ${success ? 'สำเร็จ' : 'ล้มเหลว'}\n` +
-          `มีการ์ดล้มเหลว ${failCount} ใบ (ต้องมีอย่างน้อย ${quest.failsRequired} ใบจึงจะล้มเหลว)\n\n` +
+          `มีการ์ดล้มเหลว ${failCount} ใบ\n\n` +
           `ตอนนี้ผลรวมภารกิจ: ฝ่ายดีสำเร็จ ${successCount} ครั้ง | ฝ่ายร้ายล้มเหลว ${failCountTotal} ครั้ง\n` +
           `เข้าสู่ภารกิจที่ ${this.currentQuestIndex + 1}\n` +
           `หัวหน้าทีมคนใหม่คือ <@${newLeader.id}> ใช้คำสั่ง \`/avalon propose_team\` เพื่อเลือกทีม`;
@@ -288,32 +291,24 @@ export class AvalonGame {
 
     return {
       ok: true,
-      message: `ลงคะแนนภารกิจเรียบร้อยแล้ว${note}${
-        remaining > 0 ? ` (ยังเหลือสมาชิกทีมอีก ${remaining} คนที่ยังไม่ได้โหวต)` : ''
-      }`,
+      message: `ลงคะแนนภารกิจเรียบร้อยแล้ว${note}${remaining > 0 ? ` (ยังเหลือสมาชิกทีมอีก ${remaining} คนที่ยังไม่ได้โหวต)` : ''}`,
       broadcast,
       ephemeral: true,
     };
   }
 
   assassinGuess(assassinId, targetId) {
-    if (!this.started) {
-      return { ok: false, message: 'เกมยังไม่เริ่ม' };
-    }
+    if (!this.started) return { ok: false, message: 'เกมยังไม่เริ่ม' };
     if (this.phase !== 'assassin_guess') {
       return { ok: false, message: 'ตอนนี้ยังไม่ใช่ช่วงให้ Assassin เดา Merlin' };
     }
     const assassin = this.players.find((p) => p.role.key === 'ASSASSIN');
-    if (!assassin) {
-      return { ok: false, message: 'ในเกมนี้ไม่มี Assassin' };
-    }
+    if (!assassin) return { ok: false, message: 'ในเกมนี้ไม่มี Assassin' };
     if (assassin.id !== assassinId) {
       return { ok: false, message: 'มีเพียง Assassin เท่านั้นที่สามารถใช้คำสั่งนี้ได้' };
     }
     const target = this.players.find((p) => p.id === targetId);
-    if (!target) {
-      return { ok: false, message: 'ไม่พบผู้เล่นเป้าหมาย' };
-    }
+    if (!target) return { ok: false, message: 'ไม่พบผู้เล่นเป้าหมาย' };
 
     const isMerlin = target.role.key === 'MERLIN';
     this.phase = 'ended';
@@ -364,16 +359,14 @@ export class AvalonGame {
           this.winner === 'good'
             ? 'เกมจบแล้ว: ฝ่ายดีเป็นผู้ชนะ'
             : this.winner === 'evil'
-            ? 'เกมจบแล้ว: ฝ่ายร้ายเป็นผู้ชนะ'
-            : 'เกมจบแล้ว';
+              ? 'เกมจบแล้ว: ฝ่ายร้ายเป็นผู้ชนะ'
+              : 'เกมจบแล้ว';
         break;
       default:
         phaseText = 'ไม่ทราบสถานะเกม (ผิดปกติ)';
-        break;
     }
 
     const leader = this.getLeader();
-
     return {
       questIcons,
       phaseText,
@@ -382,9 +375,9 @@ export class AvalonGame {
   }
 }
 
-export class AvalonGameManager {
+class AvalonGameManager {
   constructor() {
-    this.games = new Map(); // channelId -> AvalonGame
+    this.games = new Map();
   }
 
   createGame(channelId, hostId) {
@@ -402,43 +395,4 @@ export class AvalonGameManager {
   }
 }
 
-function createQuestSetupForPlayerCount(count) {
-  // ตารางทีมและจำนวนการ์ดล้มเหลวขั้นต่ำตามจำนวนผู้เล่น (กติกา Avalon มาตรฐาน)
-  // index 0-4 คือ ภารกิจที่ 1-5
-  const configByCount = {
-    5: {
-      teamSizes: [2, 3, 2, 3, 3],
-      failsRequired: [1, 1, 1, 1, 1],
-    },
-    6: {
-      teamSizes: [2, 3, 4, 3, 4],
-      failsRequired: [1, 1, 1, 1, 1],
-    },
-    7: {
-      teamSizes: [2, 3, 3, 4, 4],
-      failsRequired: [1, 1, 1, 2, 1],
-    },
-    8: {
-      teamSizes: [3, 4, 4, 5, 5],
-      failsRequired: [1, 1, 1, 2, 1],
-    },
-    9: {
-      teamSizes: [3, 4, 4, 5, 5],
-      failsRequired: [1, 1, 1, 2, 1],
-    },
-    10: {
-      teamSizes: [3, 4, 4, 5, 5],
-      failsRequired: [1, 1, 1, 2, 1],
-    },
-  };
-
-  const base = configByCount[count] ?? configByCount[10];
-  return base.teamSizes.map((size, index) => ({
-    index,
-    teamSize: size,
-    failsRequired: base.failsRequired[index],
-    result: null,
-  }));
-}
-
-
+module.exports = { AvalonGame, AvalonGameManager };

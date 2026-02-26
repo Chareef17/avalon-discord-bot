@@ -1,14 +1,13 @@
-import 'dotenv/config';
-import {
+require('dotenv').config();
+const {
   Client,
   GatewayIntentBits,
   Partials,
   REST,
   Routes,
-  Collection,
-} from 'discord.js';
-import { createAvalonCommands } from './commands/avalonCommands.js';
-import { AvalonGameManager } from './game/AvalonGameManager.js';
+} = require('discord.js');
+const { createAvalonCommands } = require('./commands/avalonCommands');
+const { AvalonGameManager } = require('./game/AvalonGameManager');
 
 const token = process.env.DISCORD_TOKEN;
 
@@ -27,23 +26,18 @@ const client = new Client({
   partials: [Partials.Channel],
 });
 
-client.commands = new Collection();
 const avalonGameManager = new AvalonGameManager();
 
 async function registerCommands(appId) {
-  const commands = createAvalonCommands();
+  const { data, execute } = createAvalonCommands();
   const rest = new REST({ version: '10' }).setToken(token);
 
   try {
     console.log('กำลังลงทะเบียน Slash Commands (/avalon ...)');
     await rest.put(Routes.applicationCommands(appId), {
-      body: commands.map((c) => c.data.toJSON()),
+      body: [data.toJSON()],
     });
     console.log('ลงทะเบียน Slash Commands สำเร็จ');
-
-    for (const command of commands) {
-      client.commands.set(command.data.name, command);
-    }
   } catch (error) {
     console.error('ลงทะเบียนคำสั่งไม่สำเร็จ', error);
   }
@@ -52,33 +46,33 @@ async function registerCommands(appId) {
 client.once('ready', async () => {
   console.log(`ล็อกอินเป็น ${client.user.tag} แล้ว พร้อมใช้งาน!`);
 
-  const appId = client.application?.id || client.user.id;
+  const appId = client.application && client.application.id ? client.application.id : client.user.id;
   await registerCommands(appId);
 });
 
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
+  if (interaction.commandName !== 'avalon') return;
 
-  const command = client.commands.get(interaction.commandName);
-  if (!command) return;
-
+  const { execute } = createAvalonCommands();
   try {
-    await command.execute(interaction, avalonGameManager);
+    await execute(interaction, avalonGameManager);
   } catch (error) {
     console.error(error);
-    if (interaction.replied || interaction.deferred) {
-      await interaction.followUp({
-        content: 'เกิดข้อผิดพลาดในการทำงานของคำสั่งนี้',
-        ephemeral: true,
-      });
-    } else {
-      await interaction.reply({
-        content: 'เกิดข้อผิดพลาดในการทำงานของคำสั่งนี้',
-        ephemeral: true,
-      });
-    }
+    try {
+      if (interaction.replied || interaction.deferred) {
+        await interaction.followUp({
+          content: 'เกิดข้อผิดพลาดในการทำงานของคำสั่งนี้',
+          ephemeral: true,
+        });
+      } else {
+        await interaction.reply({
+          content: 'เกิดข้อผิดพลาดในการทำงานของคำสั่งนี้',
+          ephemeral: true,
+        });
+      }
+    } catch (_) {}
   }
 });
 
 client.login(token);
-

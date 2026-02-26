@@ -1,22 +1,15 @@
 {
   "name": "avalon-discord-bot",
   "version": "1.0.0",
-  "description": "Discord bot for playing The Resistance: Avalon in a Discord server.",
+  "description": "Discord bot for playing The Resistance: Avalon. รันเดี่ยวได้ หรือใช้เป็น slice ใน discord-games-bot",
   "main": "src/bot.js",
-  "type": "module",
   "scripts": {
     "start": "node src/bot.js",
-    "dev": "NODE_ENV=development node src/bot.js",
-    "register:commands": "node src/bot.js"
+    "dev": "NODE_ENV=development node src/bot.js"
   },
-  "keywords": [
-    "discord",
-    "bot",
-    "avalon",
-    "boardgame"
-  ],
-  "author": "",
+  "keywords": ["discord", "bot", "avalon", "boardgame"],
   "license": "MIT",
+  "engines": { "node": ">=18.0.0" },
   "dependencies": {
     "discord.js": "^14.16.3",
     "dotenv": "^16.4.5"
