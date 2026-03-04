@@ -14,6 +14,7 @@ const {
   createMissionPromptRow,
   createMissionVoteRow,
   createAssassinSelectRow,
+  createLobbyRow,
 } = require('./ui/components');
 
 const token = process.env.DISCORD_TOKEN;
@@ -34,6 +35,57 @@ const client = new Client({
 });
 
 const gameManager = new AvalonGameManager();
+
+// ---------------------------------------------------------------------------
+// Helper: build lobby message text
+// ---------------------------------------------------------------------------
+
+function buildLobbyContent(game) {
+  const playerList =
+    game.players.length > 0
+      ? game.players.map((p, i) => `${i + 1}. <@${p.id}>`).join('\n')
+      : '_ยังไม่มีผู้เล่น_';
+
+  const canStart = game.players.length >= 5;
+  const startHint = canStart
+    ? '✅ พร้อมเริ่มเกมแล้ว กดปุ่ม **เริ่มเกม (Start)**'
+    : `⏳ ต้องการผู้เล่นอีก ${5 - game.players.length} คน (ขั้นต่ำ 5 คน)`;
+
+  return (
+    `⚔️ **ห้องเกม Avalon**\n` +
+    `เจ้าห้อง: <@${game.hostId}>\n` +
+    `ผู้เล่น: ${game.players.length}/10\n\n` +
+    `${playerList}\n\n` +
+    startHint
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Helper: send / update lobby UI
+// ---------------------------------------------------------------------------
+
+async function sendLobbyUI(channel, game) {
+  const row = createLobbyRow();
+  const msg = await channel.send({
+    content: buildLobbyContent(game),
+    components: [row],
+  });
+  game.lobbyMessageId = msg.id;
+}
+
+async function updateLobbyMessage(interaction, game) {
+  if (!game.lobbyMessageId) return;
+  try {
+    const row = createLobbyRow();
+    const msg = await interaction.channel.messages.fetch(game.lobbyMessageId);
+    if (msg) {
+      await msg.edit({
+        content: buildLobbyContent(game),
+        components: [row],
+      });
+    }
+  } catch (_) {}
+}
 
 // ---------------------------------------------------------------------------
 // Helper: send phase-specific UI into a channel
@@ -108,6 +160,56 @@ async function sendAssassinUI(channel, game) {
 }
 
 // ---------------------------------------------------------------------------
+// Helper: start game (shared by button and could be slash command)
+// ---------------------------------------------------------------------------
+
+async function startGame(interaction, game) {
+  const canStart = game.canStart();
+  if (!canStart.ok) {
+    await interaction.reply({ content: canStart.reason, ephemeral: true });
+    return;
+  }
+
+  const roleInfos = game.assignRoles();
+  const questTable = game.getQuestTable();
+
+  // disable lobby buttons
+  if (game.lobbyMessageId) {
+    try {
+      const lobbyMsg = await interaction.channel.messages.fetch(game.lobbyMessageId);
+      if (lobbyMsg) {
+        await lobbyMsg.edit({
+          content: lobbyMsg.content.replace(/⏳.*|✅.*/, '🎮 เกมเริ่มแล้ว!'),
+          components: [],
+        });
+      }
+    } catch (_) {}
+    game.lobbyMessageId = null;
+  }
+
+  await interaction.reply({
+    content:
+      `⚔️ **เริ่มเกม Avalon แล้ว!** มีผู้เล่น ${game.players.length} คน\n\n` +
+      `📋 **ตารางภารกิจ**\n${questTable}\n\n` +
+      'ระบบจะส่งบทบาทให้ผู้เล่นทาง DM...',
+  });
+
+  for (const info of roleInfos) {
+    try {
+      const member = await interaction.guild.members.fetch(info.id);
+      const dm = await member.createDM();
+      await dm.send(
+        `คุณได้รับบทบาท **${info.roleName}**\n\n${info.description}`,
+      );
+    } catch (err) {
+      console.error('ส่ง DM ไม่สำเร็จให้ผู้เล่น', info.id, err);
+    }
+  }
+
+  await sendTeamProposalUI(interaction.channel, game);
+}
+
+// ---------------------------------------------------------------------------
 // Register slash commands on ready
 // ---------------------------------------------------------------------------
 
@@ -143,7 +245,7 @@ client.on('interactionCreate', async (interaction) => {
   try {
     if (interaction.isChatInputCommand() && interaction.commandName === 'avalon') {
       const { execute } = createAvalonCommands();
-      await execute(interaction, gameManager, { sendTeamProposalUI });
+      await execute(interaction, gameManager, { sendTeamProposalUI, sendLobbyUI });
       return;
     }
 
@@ -175,13 +277,12 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ---------------------------------------------------------------------------
-// Select menu handler (team proposal + assassin guess)
+// Select menu handler
 // ---------------------------------------------------------------------------
 
 async function handleSelectMenu(interaction) {
   const { customId } = interaction;
 
-  // ---- เลือกทีมภารกิจ ----
   if (customId === 'avalon_team_select') {
     const channelId = interaction.channelId;
     const game = gameManager.getGame(channelId);
@@ -207,7 +308,6 @@ async function handleSelectMenu(interaction) {
     return;
   }
 
-  // ---- Assassin เดา Merlin ----
   if (customId === 'avalon_assassin_select') {
     const channelId = interaction.channelId;
     const game = gameManager.getGame(channelId);
@@ -237,11 +337,61 @@ async function handleSelectMenu(interaction) {
 }
 
 // ---------------------------------------------------------------------------
-// Button handler (team vote + mission vote)
+// Button handler
 // ---------------------------------------------------------------------------
 
 async function handleButton(interaction) {
   const { customId } = interaction;
+
+  // ---- Lobby: Join ----
+  if (customId === 'avalon_join') {
+    const channelId = interaction.channelId;
+    const game = gameManager.getGame(channelId);
+    if (!game) {
+      await interaction.reply({ content: 'ไม่พบเกมในช่องนี้', ephemeral: true });
+      return;
+    }
+    const result = game.addPlayer(
+      interaction.user.id,
+      interaction.member?.displayName || interaction.user.displayName || interaction.user.username,
+    );
+    await interaction.reply({ content: result.message, ephemeral: true });
+    if (result.ok) await updateLobbyMessage(interaction, game);
+    return;
+  }
+
+  // ---- Lobby: Leave ----
+  if (customId === 'avalon_leave') {
+    const channelId = interaction.channelId;
+    const game = gameManager.getGame(channelId);
+    if (!game) {
+      await interaction.reply({ content: 'ไม่พบเกมในช่องนี้', ephemeral: true });
+      return;
+    }
+    const result = game.removePlayer(interaction.user.id);
+    await interaction.reply({ content: result.message, ephemeral: true });
+    if (result.ok) await updateLobbyMessage(interaction, game);
+    return;
+  }
+
+  // ---- Lobby: Start ----
+  if (customId === 'avalon_start') {
+    const channelId = interaction.channelId;
+    const game = gameManager.getGame(channelId);
+    if (!game) {
+      await interaction.reply({ content: 'ไม่พบเกมในช่องนี้', ephemeral: true });
+      return;
+    }
+    if (interaction.user.id !== game.hostId) {
+      await interaction.reply({
+        content: 'มีเพียงเจ้าห้องเท่านั้นที่สามารถเริ่มเกมได้',
+        ephemeral: true,
+      });
+      return;
+    }
+    await startGame(interaction, game);
+    return;
+  }
 
   // ---- โหวตทีม (Approve / Reject) ----
   if (customId === 'avalon_team_approve' || customId === 'avalon_team_reject') {
@@ -280,7 +430,7 @@ async function handleButton(interaction) {
     return;
   }
 
-  // ---- ปุ่มเปิดโหวตภารกิจ (สาธารณะในช่อง) ----
+  // ---- ปุ่มเปิดโหวตภารกิจ ----
   if (customId === 'avalon_mission_prompt') {
     const channelId = interaction.channelId;
     const game = gameManager.getGame(channelId);
@@ -316,7 +466,7 @@ async function handleButton(interaction) {
     return;
   }
 
-  // ---- โหวตภารกิจจริง (ephemeral ในช่อง) ----
+  // ---- โหวตภารกิจจริง (ephemeral) ----
   if (customId === 'avalon_mission_success' || customId === 'avalon_mission_fail') {
     const channelId = interaction.channelId;
     const game = gameManager.getGame(channelId);

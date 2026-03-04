@@ -5,16 +5,7 @@ function createAvalonCommands() {
     .setName('avalon')
     .setDescription('เล่นเกม Avalon ในช่องนี้')
     .addSubcommand((sub) =>
-      sub.setName('setup').setDescription('สร้างเกม Avalon ใหม่ในช่องนี้'),
-    )
-    .addSubcommand((sub) =>
-      sub.setName('join').setDescription('เข้าร่วมเกม Avalon ที่เปิดอยู่'),
-    )
-    .addSubcommand((sub) =>
-      sub.setName('leave').setDescription('ออกจากเกม Avalon ที่เข้าร่วมอยู่'),
-    )
-    .addSubcommand((sub) =>
-      sub.setName('start').setDescription('เริ่มเกม Avalon (สุ่มบทบาท)'),
+      sub.setName('create').setDescription('สร้างเกม Avalon ใหม่และเข้าร่วมอัตโนมัติ'),
     )
     .addSubcommand((sub) =>
       sub.setName('status').setDescription('เช็คสถานะเกม Avalon ในช่องนี้'),
@@ -27,93 +18,34 @@ function createAvalonCommands() {
     const sub = interaction.options.getSubcommand();
     const channelId = interaction.channelId;
 
-    if (sub === 'setup') {
-      gameManager.createGame(channelId, interaction.user.id);
-      await interaction.reply({
-        content:
-          '⚔️ สร้างเกม Avalon ใหม่แล้ว! ใช้คำสั่ง `/avalon join` เพื่อเข้าร่วม\n' +
-          '(ผู้เล่นขั้นต่ำ 5 คน สูงสุด 10 คน)',
-      });
-      return;
-    }
-
-    if (sub === 'join') {
-      const game = gameManager.getGame(channelId);
-      if (!game) {
+    if (sub === 'create') {
+      const existing = gameManager.getGame(channelId);
+      if (existing && existing.started) {
         await interaction.reply({
-          content: 'ยังไม่มีเกม Avalon ในช่องนี้ ใช้คำสั่ง `/avalon setup` ก่อน',
+          content: 'มีเกม Avalon กำลังเล่นอยู่ในช่องนี้แล้ว',
           ephemeral: true,
         });
         return;
       }
-      const result = game.addPlayer(
+
+      const game = gameManager.createGame(channelId, interaction.user.id);
+
+      game.addPlayer(
         interaction.user.id,
-        interaction.user.displayName || interaction.user.username,
+        interaction.member?.displayName || interaction.user.displayName || interaction.user.username,
       );
-      await interaction.reply({
-        content: result.message,
-        ephemeral: result.ephemeral === true,
-      });
-      return;
-    }
 
-    if (sub === 'leave') {
-      const game = gameManager.getGame(channelId);
-      if (!game) {
+      if (helpers && helpers.sendLobbyUI) {
         await interaction.reply({
-          content: 'ยังไม่มีเกม Avalon ในช่องนี้',
-          ephemeral: true,
+          content: '⚔️ สร้างเกม Avalon ใหม่แล้ว!',
         });
-        return;
-      }
-      const result = game.removePlayer(interaction.user.id);
-      await interaction.reply({
-        content: result.message,
-        ephemeral: result.ephemeral === true,
-      });
-      return;
-    }
-
-    if (sub === 'start') {
-      const game = gameManager.getGame(channelId);
-      if (!game) {
+        await helpers.sendLobbyUI(interaction.channel, game);
+      } else {
         await interaction.reply({
-          content: 'ยังไม่มีเกม Avalon ในช่องนี้',
-          ephemeral: true,
+          content:
+            '⚔️ สร้างเกม Avalon ใหม่แล้ว! กดปุ่ม Join เพื่อเข้าร่วม\n' +
+            '(ผู้เล่นขั้นต่ำ 5 คน สูงสุด 10 คน)',
         });
-        return;
-      }
-      const canStart = game.canStart();
-      if (!canStart.ok) {
-        await interaction.reply({ content: canStart.reason, ephemeral: true });
-        return;
-      }
-
-      const roleInfos = game.assignRoles();
-
-      const questTable = game.getQuestTable();
-
-      await interaction.reply({
-        content:
-          `⚔️ **เริ่มเกม Avalon แล้ว!** มีผู้เล่น ${game.players.length} คน\n\n` +
-          `📋 **ตารางภารกิจ**\n${questTable}\n\n` +
-          'ระบบจะส่งบทบาทให้ผู้เล่นทาง DM...',
-      });
-
-      for (const info of roleInfos) {
-        try {
-          const member = await interaction.guild.members.fetch(info.id);
-          const dm = await member.createDM();
-          await dm.send(
-            `คุณได้รับบทบาท **${info.roleName}**\n\n${info.description}`,
-          );
-        } catch (err) {
-          console.error('ส่ง DM ไม่สำเร็จให้ผู้เล่น', info.id, err);
-        }
-      }
-
-      if (helpers && helpers.sendTeamProposalUI) {
-        await helpers.sendTeamProposalUI(interaction.channel, game);
       }
       return;
     }

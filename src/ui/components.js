@@ -79,10 +79,30 @@ function createAssassinSelectRow(goodPlayers) {
   return new ActionRowBuilder().addComponents(menu);
 }
 
+function createLobbyRow() {
+  const join = new ButtonBuilder()
+    .setCustomId('avalon_join')
+    .setLabel('เข้าร่วม (Join)')
+    .setStyle(ButtonStyle.Success);
+
+  const leave = new ButtonBuilder()
+    .setCustomId('avalon_leave')
+    .setLabel('ออก (Leave)')
+    .setStyle(ButtonStyle.Secondary);
+
+  const start = new ButtonBuilder()
+    .setCustomId('avalon_start')
+    .setLabel('เริ่มเกม (Start)')
+    .setStyle(ButtonStyle.Primary);
+
+  return new ActionRowBuilder().addComponents(join, leave, start);
+}
+
 module.exports = {
   createTeamSelectRow,
   createTeamVoteRow,
   createMissionPromptRow,
   createMissionVoteRow,
   createAssassinSelectRow,
+  createLobbyRow,
 };

@@ -33,6 +33,7 @@ class AvalonGame {
     this.missionVotes = new Map();
     this.consecutiveRejectedTeams = 0;
     this.winner = null;
+    this.lobbyMessageId = null;
     this.missionPromptMessageId = null;
   }
 
