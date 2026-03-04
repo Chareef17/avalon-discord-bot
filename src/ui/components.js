@@ -38,7 +38,7 @@ function createTeamVoteRow() {
 function createMissionPromptRow() {
   const btn = new ButtonBuilder()
     .setCustomId('avalon_mission_prompt')
-    .setLabel('กดเพื่อโหวตภารกิจ')
+    .setLabel('โหวตภารกิจ (เฉพาะสมาชิกทีม)')
     .setStyle(ButtonStyle.Primary);
 
   return new ActionRowBuilder().addComponents(btn);

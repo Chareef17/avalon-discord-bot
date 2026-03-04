@@ -84,13 +84,14 @@ async function sendMissionPromptUI(channel, game) {
   const teamList = game.selectedTeam.map((id) => `<@${id}>`).join(', ');
   const row = createMissionPromptRow();
 
-  await channel.send({
+  const msg = await channel.send({
     content:
-      `🗡️ **ภารกิจที่ ${questNo}** (ทีม ${quest.teamSize} คน)\n` +
+      `🗡️ **ภารกิจที่ ${questNo}** — ทีม ${quest.teamSize} คนกำลังทำภารกิจ...\n` +
       `สมาชิกทีม: ${teamList}\n\n` +
-      'สมาชิกทีมกดปุ่มด้านล่างเพื่อโหวตผลภารกิจ (เฉพาะสมาชิกทีมเท่านั้น)',
+      '⏳ รอสมาชิกทีมโหวตผลภารกิจ',
     components: [row],
   });
+  game.missionPromptMessageId = msg.id;
 }
 
 async function sendAssassinUI(channel, game) {
@@ -293,7 +294,7 @@ async function handleButton(interaction) {
     }
     if (!game.selectedTeam.includes(interaction.user.id)) {
       await interaction.reply({
-        content: 'เฉพาะสมาชิกทีมภารกิจเท่านั้นที่สามารถโหวตได้',
+        content: '⏳ กรุณารอสมาชิกทีมโหวตภารกิจ คุณไม่ได้อยู่ในทีมนี้',
         ephemeral: true,
       });
       return;
@@ -338,6 +339,24 @@ async function handleButton(interaction) {
     });
 
     if (result.allVotesIn) {
+      if (game.missionPromptMessageId) {
+        try {
+          const promptMsg = await interaction.channel.messages.fetch(
+            game.missionPromptMessageId,
+          );
+          if (promptMsg) {
+            await promptMsg.edit({
+              content: promptMsg.content.replace(
+                '⏳ รอสมาชิกทีมโหวตผลภารกิจ',
+                '✅ สมาชิกทีมโหวตครบแล้ว',
+              ),
+              components: [],
+            });
+          }
+        } catch (_) {}
+        game.missionPromptMessageId = null;
+      }
+
       if (result.broadcast) {
         await interaction.channel.send(result.broadcast);
       }
