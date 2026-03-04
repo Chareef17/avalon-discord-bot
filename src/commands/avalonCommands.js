@@ -20,78 +20,19 @@ function createAvalonCommands() {
       sub.setName('status').setDescription('เช็คสถานะเกม Avalon ในช่องนี้'),
     )
     .addSubcommand((sub) =>
-      sub
-        .setName('propose_team')
-        .setDescription('หัวหน้าทีมเลือกสมาชิกทีมสำหรับภารกิจปัจจุบัน')
-        .addUserOption((opt) =>
-          opt.setName('member1').setDescription('สมาชิกทีมคนที่ 1').setRequired(true),
-        )
-        .addUserOption((opt) =>
-          opt.setName('member2').setDescription('สมาชิกทีมคนที่ 2').setRequired(true),
-        )
-        .addUserOption((opt) =>
-          opt.setName('member3').setDescription('สมาชิกทีมคนที่ 3').setRequired(false),
-        )
-        .addUserOption((opt) =>
-          opt.setName('member4').setDescription('สมาชิกทีมคนที่ 4').setRequired(false),
-        )
-        .addUserOption((opt) =>
-          opt.setName('member5').setDescription('สมาชิกทีมคนที่ 5').setRequired(false),
-        ),
-    )
-    .addSubcommand((sub) =>
-      sub
-        .setName('vote_team')
-        .setDescription('โหวตเห็นด้วย/ไม่เห็นด้วยกับทีมที่หัวหน้าทีมเสนอ')
-        .addStringOption((opt) =>
-          opt
-            .setName('vote')
-            .setDescription('approve = เห็นด้วย, reject = ไม่เห็นด้วย')
-            .setRequired(true)
-            .addChoices(
-              { name: 'เห็นด้วย (Approve)', value: 'approve' },
-              { name: 'ไม่เห็นด้วย (Reject)', value: 'reject' },
-            ),
-        ),
-    )
-    .addSubcommand((sub) =>
-      sub
-        .setName('mission_vote')
-        .setDescription('สมาชิกทีมโหวตว่าให้ภารกิจ สำเร็จ หรือ ล้มเหลว')
-        .addStringOption((opt) =>
-          opt
-            .setName('result')
-            .setDescription('success = สำเร็จ, fail = ล้มเหลว (ฝ่ายดีต้องเลือก success เท่านั้น)')
-            .setRequired(true)
-            .addChoices(
-              { name: 'สำเร็จ (Success)', value: 'success' },
-              { name: 'ล้มเหลว (Fail)', value: 'fail' },
-            ),
-        ),
-    )
-    .addSubcommand((sub) =>
-      sub
-        .setName('assassin_guess')
-        .setDescription('ให้ Assassin เดาว่าใครคือ Merlin')
-        .addUserOption((opt) =>
-          opt
-            .setName('target')
-            .setDescription('ผู้เล่นที่คิดว่าเป็น Merlin')
-            .setRequired(true),
-        ),
-    )
-    .addSubcommand((sub) =>
       sub.setName('cancel').setDescription('ยกเลิกเกม Avalon ในช่องนี้ (เฉพาะเจ้าห้อง)'),
     );
 
-  async function execute(interaction, gameManager) {
+  async function execute(interaction, gameManager, helpers) {
     const sub = interaction.options.getSubcommand();
     const channelId = interaction.channelId;
 
     if (sub === 'setup') {
       gameManager.createGame(channelId, interaction.user.id);
       await interaction.reply({
-        content: `สร้างเกม Avalon ใหม่แล้ว! ใช้คำสั่ง \`/avalon join\` เพื่อเข้าร่วม (ตอนนี้มีผู้เล่นขั้นต่ำ 5 คน สูงสุด 10 คน)`,
+        content:
+          '⚔️ สร้างเกม Avalon ใหม่แล้ว! ใช้คำสั่ง `/avalon join` เพื่อเข้าร่วม\n' +
+          '(ผู้เล่นขั้นต่ำ 5 คน สูงสุด 10 คน)',
       });
       return;
     }
@@ -105,7 +46,10 @@ function createAvalonCommands() {
         });
         return;
       }
-      const result = game.addPlayer(interaction.user.id, interaction.user.username);
+      const result = game.addPlayer(
+        interaction.user.id,
+        interaction.user.displayName || interaction.user.username,
+      );
       await interaction.reply({
         content: result.message,
         ephemeral: result.ephemeral === true,
@@ -116,7 +60,10 @@ function createAvalonCommands() {
     if (sub === 'leave') {
       const game = gameManager.getGame(channelId);
       if (!game) {
-        await interaction.reply({ content: 'ยังไม่มีเกม Avalon ในช่องนี้', ephemeral: true });
+        await interaction.reply({
+          content: 'ยังไม่มีเกม Avalon ในช่องนี้',
+          ephemeral: true,
+        });
         return;
       }
       const result = game.removePlayer(interaction.user.id);
@@ -130,7 +77,10 @@ function createAvalonCommands() {
     if (sub === 'start') {
       const game = gameManager.getGame(channelId);
       if (!game) {
-        await interaction.reply({ content: 'ยังไม่มีเกม Avalon ในช่องนี้', ephemeral: true });
+        await interaction.reply({
+          content: 'ยังไม่มีเกม Avalon ในช่องนี้',
+          ephemeral: true,
+        });
         return;
       }
       const canStart = game.canStart();
@@ -138,24 +88,32 @@ function createAvalonCommands() {
         await interaction.reply({ content: canStart.reason, ephemeral: true });
         return;
       }
+
       const roleInfos = game.assignRoles();
+
+      const questTable = game.getQuestTable();
 
       await interaction.reply({
         content:
-          `เริ่มเกม Avalon แล้ว! มีผู้เล่นทั้งหมด ${game.players.length} คน\n` +
-          `หัวหน้าทีมคนแรกคือ <@${game.getLeader().id}>\n` +
-          'ระบบจะส่งบทบาททาง DM ให้ผู้เล่นแต่ละคน\n' +
-          'หัวหน้าทีมใช้คำสั่ง `/avalon propose_team` เพื่อเลือกทีมสำหรับภารกิจที่ 1',
+          `⚔️ **เริ่มเกม Avalon แล้ว!** มีผู้เล่น ${game.players.length} คน\n\n` +
+          `📋 **ตารางภารกิจ**\n${questTable}\n\n` +
+          'ระบบจะส่งบทบาทให้ผู้เล่นทาง DM...',
       });
 
       for (const info of roleInfos) {
         try {
           const member = await interaction.guild.members.fetch(info.id);
           const dm = await member.createDM();
-          await dm.send(`คุณได้รับบทบาท **${info.roleName}**\n\n${info.description}`);
+          await dm.send(
+            `คุณได้รับบทบาท **${info.roleName}**\n\n${info.description}`,
+          );
         } catch (err) {
           console.error('ส่ง DM ไม่สำเร็จให้ผู้เล่น', info.id, err);
         }
+      }
+
+      if (helpers && helpers.sendTeamProposalUI) {
+        await helpers.sendTeamProposalUI(interaction.channel, game);
       }
       return;
     }
@@ -163,7 +121,10 @@ function createAvalonCommands() {
     if (sub === 'status') {
       const game = gameManager.getGame(channelId);
       if (!game) {
-        await interaction.reply({ content: 'ยังไม่มีเกม Avalon ในช่องนี้', ephemeral: true });
+        await interaction.reply({
+          content: 'ยังไม่มีเกม Avalon ในช่องนี้',
+          ephemeral: true,
+        });
         return;
       }
       const playerList = game.players
@@ -177,90 +138,20 @@ function createAvalonCommands() {
           `จำนวนผู้เล่น: ${game.players.length}\n` +
           `สถานะปัจจุบัน: ${status.phaseText}\n` +
           (status.leaderId ? `หัวหน้าทีม: <@${status.leaderId}>\n` : '') +
-          `\n**แถบภารกิจ**\n${status.questIcons}\n\n` +
+          `\n📋 **แถบภารกิจ**\n${status.questIcons}\n\n` +
+          `**ผู้เล่น**\n` +
           (playerList || 'ยังไม่มีผู้เล่นเข้าร่วม'),
       });
-      return;
-    }
-
-    if (sub === 'propose_team') {
-      const game = gameManager.getGame(channelId);
-      if (!game) {
-        await interaction.reply({ content: 'ยังไม่มีเกม Avalon ในช่องนี้', ephemeral: true });
-        return;
-      }
-      const memberIds = [];
-      for (let i = 1; i <= 5; i++) {
-        const user = interaction.options.getUser(`member${i}`);
-        if (user) memberIds.push(user.id);
-      }
-      const result = game.proposeTeam(interaction.user.id, memberIds);
-      await interaction.reply({
-        content: result.message,
-        ephemeral: result.ephemeral === true,
-      });
-      return;
-    }
-
-    if (sub === 'vote_team') {
-      const game = gameManager.getGame(channelId);
-      if (!game) {
-        await interaction.reply({ content: 'ยังไม่มีเกม Avalon ในช่องนี้', ephemeral: true });
-        return;
-      }
-      const vote = interaction.options.getString('vote');
-      const approve = vote === 'approve';
-      const result = game.voteTeam(interaction.user.id, approve);
-      await interaction.reply({
-        content: result.message,
-        ephemeral: result.ephemeral !== false,
-      });
-      if (result.broadcast && interaction.channel) {
-        await interaction.channel.send(result.broadcast);
-      }
-      return;
-    }
-
-    if (sub === 'mission_vote') {
-      const game = gameManager.getGame(channelId);
-      if (!game) {
-        await interaction.reply({ content: 'ยังไม่มีเกม Avalon ในช่องนี้', ephemeral: true });
-        return;
-      }
-      const resultValue = interaction.options.getString('result');
-      const result = game.voteMission(interaction.user.id, resultValue);
-      await interaction.reply({
-        content: result.message,
-        ephemeral: result.ephemeral !== false,
-      });
-      if (result.broadcast && interaction.channel) {
-        await interaction.channel.send(result.broadcast);
-      }
-      return;
-    }
-
-    if (sub === 'assassin_guess') {
-      const game = gameManager.getGame(channelId);
-      if (!game) {
-        await interaction.reply({ content: 'ยังไม่มีเกม Avalon ในช่องนี้', ephemeral: true });
-        return;
-      }
-      const target = interaction.options.getUser('target', true);
-      const result = game.assassinGuess(interaction.user.id, target.id);
-      await interaction.reply({
-        content: result.message,
-        ephemeral: result.ephemeral !== false,
-      });
-      if (result.broadcast && interaction.channel) {
-        await interaction.channel.send(result.broadcast);
-      }
       return;
     }
 
     if (sub === 'cancel') {
       const game = gameManager.getGame(channelId);
       if (!game) {
-        await interaction.reply({ content: 'ยังไม่มีเกม Avalon ในช่องนี้', ephemeral: true });
+        await interaction.reply({
+          content: 'ยังไม่มีเกม Avalon ในช่องนี้',
+          ephemeral: true,
+        });
         return;
       }
       if (interaction.user.id !== game.hostId) {
@@ -271,7 +162,9 @@ function createAvalonCommands() {
         return;
       }
       gameManager.removeGame(channelId);
-      await interaction.reply({ content: 'เกม Avalon ในช่องนี้ถูกยกเลิกแล้ว' });
+      await interaction.reply({
+        content: '🛑 เกม Avalon ในช่องนี้ถูกยกเลิกแล้ว',
+      });
     }
   }
 
