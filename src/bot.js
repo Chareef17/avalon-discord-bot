@@ -11,6 +11,7 @@ const { AvalonGameManager } = require('./game/AvalonGameManager');
 const {
   createTeamSelectRow,
   createTeamVoteRow,
+  createMissionPromptRow,
   createMissionVoteRow,
   createAssassinSelectRow,
 } = require('./ui/components');
@@ -77,30 +78,19 @@ async function sendTeamVoteUI(channel, game) {
   });
 }
 
-async function sendMissionVoteDMs(guild, game, channelId) {
+async function sendMissionPromptUI(channel, game) {
   const questNo = game.currentQuestIndex + 1;
   const quest = game.getCurrentQuest();
+  const teamList = game.selectedTeam.map((id) => `<@${id}>`).join(', ');
+  const row = createMissionPromptRow();
 
-  for (const playerId of game.selectedTeam) {
-    const player = game.players.find((p) => p.id === playerId);
-    if (!player) continue;
-
-    const isEvil = player.role.side === 'evil';
-    const row = createMissionVoteRow(isEvil, channelId);
-
-    try {
-      const member = await guild.members.fetch(playerId);
-      const dm = await member.createDM();
-      await dm.send({
-        content:
-          `🗡️ **ภารกิจที่ ${questNo}** (ทีม ${quest.teamSize} คน)\n` +
-          'กรุณาโหวตผลภารกิจด้านล่าง',
-        components: [row],
-      });
-    } catch (err) {
-      console.error('ส่ง DM ภารกิจไม่สำเร็จ', playerId, err);
-    }
-  }
+  await channel.send({
+    content:
+      `🗡️ **ภารกิจที่ ${questNo}** (ทีม ${quest.teamSize} คน)\n` +
+      `สมาชิกทีม: ${teamList}\n\n` +
+      'สมาชิกทีมกดปุ่มด้านล่างเพื่อโหวตผลภารกิจ (เฉพาะสมาชิกทีมเท่านั้น)',
+    components: [row],
+  });
 }
 
 async function sendAssassinUI(channel, game) {
@@ -281,10 +271,7 @@ async function handleButton(interaction) {
       }
 
       if (game.phase === 'mission') {
-        await interaction.channel.send(
-          '🗡️ สมาชิกทีมกำลังทำภารกิจ... กรุณาเช็ค DM เพื่อโหวตผลภารกิจ',
-        );
-        await sendMissionVoteDMs(interaction.guild, game, channelId);
+        await sendMissionPromptUI(interaction.channel, game);
       } else if (game.phase === 'team_proposal') {
         await sendTeamProposalUI(interaction.channel, game);
       }
@@ -292,28 +279,52 @@ async function handleButton(interaction) {
     return;
   }
 
-  // ---- โหวตภารกิจ (Success / Fail) จาก DM ----
-  if (
-    customId.startsWith('avalon_mission_success_') ||
-    customId.startsWith('avalon_mission_fail_')
-  ) {
-    let channelId;
-    let choice;
-
-    if (customId.startsWith('avalon_mission_success_')) {
-      channelId = customId.slice('avalon_mission_success_'.length);
-      choice = 'success';
-    } else {
-      channelId = customId.slice('avalon_mission_fail_'.length);
-      choice = 'fail';
-    }
-
+  // ---- ปุ่มเปิดโหวตภารกิจ (สาธารณะในช่อง) ----
+  if (customId === 'avalon_mission_prompt') {
+    const channelId = interaction.channelId;
     const game = gameManager.getGame(channelId);
     if (!game) {
-      await interaction.reply({ content: 'ไม่พบเกม (อาจถูกยกเลิกไปแล้ว)', ephemeral: true });
+      await interaction.reply({ content: 'ไม่พบเกมในช่องนี้', ephemeral: true });
+      return;
+    }
+    if (game.phase !== 'mission') {
+      await interaction.reply({ content: 'ตอนนี้ไม่ใช่ช่วงโหวตภารกิจ', ephemeral: true });
+      return;
+    }
+    if (!game.selectedTeam.includes(interaction.user.id)) {
+      await interaction.reply({
+        content: 'เฉพาะสมาชิกทีมภารกิจเท่านั้นที่สามารถโหวตได้',
+        ephemeral: true,
+      });
+      return;
+    }
+    if (game.missionVotes.has(interaction.user.id)) {
+      await interaction.reply({ content: 'คุณได้โหวตไปแล้ว', ephemeral: true });
       return;
     }
 
+    const player = game.players.find((p) => p.id === interaction.user.id);
+    const isEvil = player && player.role.side === 'evil';
+    const row = createMissionVoteRow(isEvil);
+
+    await interaction.reply({
+      content: '🗡️ กรุณาเลือกผลภารกิจ',
+      components: [row],
+      ephemeral: true,
+    });
+    return;
+  }
+
+  // ---- โหวตภารกิจจริง (ephemeral ในช่อง) ----
+  if (customId === 'avalon_mission_success' || customId === 'avalon_mission_fail') {
+    const channelId = interaction.channelId;
+    const game = gameManager.getGame(channelId);
+    if (!game) {
+      await interaction.reply({ content: 'ไม่พบเกมในช่องนี้', ephemeral: true });
+      return;
+    }
+
+    const choice = customId === 'avalon_mission_success' ? 'success' : 'fail';
     const result = game.voteMission(interaction.user.id, choice);
 
     if (!result.ok) {
@@ -327,21 +338,14 @@ async function handleButton(interaction) {
     });
 
     if (result.allVotesIn) {
-      try {
-        const channel = await client.channels.fetch(channelId);
-        if (!channel) return;
+      if (result.broadcast) {
+        await interaction.channel.send(result.broadcast);
+      }
 
-        if (result.broadcast) {
-          await channel.send(result.broadcast);
-        }
-
-        if (game.phase === 'team_proposal') {
-          await sendTeamProposalUI(channel, game);
-        } else if (game.phase === 'assassin_guess') {
-          await sendAssassinUI(channel, game);
-        }
-      } catch (err) {
-        console.error('ส่งผลภารกิจกลับช่องไม่สำเร็จ', err);
+      if (game.phase === 'team_proposal') {
+        await sendTeamProposalUI(interaction.channel, game);
+      } else if (game.phase === 'assassin_guess') {
+        await sendAssassinUI(interaction.channel, game);
       }
     }
     return;

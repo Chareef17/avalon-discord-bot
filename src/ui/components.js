@@ -35,10 +35,18 @@ function createTeamVoteRow() {
   return new ActionRowBuilder().addComponents(approve, reject);
 }
 
-// channelId encoded in custom ID so DM button clicks can route back to the game
-function createMissionVoteRow(isEvil, channelId) {
+function createMissionPromptRow() {
+  const btn = new ButtonBuilder()
+    .setCustomId('avalon_mission_prompt')
+    .setLabel('กดเพื่อโหวตภารกิจ')
+    .setStyle(ButtonStyle.Primary);
+
+  return new ActionRowBuilder().addComponents(btn);
+}
+
+function createMissionVoteRow(isEvil) {
   const success = new ButtonBuilder()
-    .setCustomId(`avalon_mission_success_${channelId}`)
+    .setCustomId('avalon_mission_success')
     .setLabel('สำเร็จ (Success)')
     .setStyle(ButtonStyle.Success);
 
@@ -46,7 +54,7 @@ function createMissionVoteRow(isEvil, channelId) {
 
   if (isEvil) {
     const fail = new ButtonBuilder()
-      .setCustomId(`avalon_mission_fail_${channelId}`)
+      .setCustomId('avalon_mission_fail')
       .setLabel('ล้มเหลว (Fail)')
       .setStyle(ButtonStyle.Danger);
     components.push(fail);
@@ -74,6 +82,7 @@ function createAssassinSelectRow(goodPlayers) {
 module.exports = {
   createTeamSelectRow,
   createTeamVoteRow,
+  createMissionPromptRow,
   createMissionVoteRow,
   createAssassinSelectRow,
 };
